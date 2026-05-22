@@ -27,7 +27,7 @@ const VISION_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
 
 export class GoogleVisionOcrProvider implements OcrProvider {
   readonly name = 'google-vision'
-  private readonly auth = new GoogleAuth({ scopes: [VISION_SCOPE] })
+  private readonly auth = createGoogleAuth()
 
   async extractText(input: { tempFilePath: string; fileUrl: string; sourceKind: SourceKind }): Promise<OcrResult | null> {
     if (input.sourceKind === 'image') {
@@ -126,4 +126,22 @@ function averageConfidence(pages?: Array<{ confidence?: number }>): number | und
   }
 
   return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function createGoogleAuth() {
+  const inlineCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
+
+  if (inlineCredentials) {
+    const credentials = JSON.parse(inlineCredentials.replace(/\\n/g, '\n')) as {
+      client_email?: string
+      private_key?: string
+    }
+
+    return new GoogleAuth({
+      scopes: [VISION_SCOPE],
+      credentials,
+    })
+  }
+
+  return new GoogleAuth({ scopes: [VISION_SCOPE] })
 }
