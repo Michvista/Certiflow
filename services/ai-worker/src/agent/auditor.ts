@@ -2,10 +2,10 @@ import * as fs from 'fs'
 import * as http from 'http'
 import * as https from 'https'
 import * as path from 'path'
-import pdfParse from 'pdf-parse'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { AuditResult, createLogger } from '@certiflow/shared'
 import { getRelevantRules } from '../rag/retriever'
+import { extractDocumentContent } from '../ingestion/pipeline'
 
 const logger = createLogger('ai-worker:auditor')
 
@@ -46,8 +46,18 @@ export async function auditReport(fileUrl: string, projectName: string): Promise
 
   try {
     tempFilePath = await downloadFile(fileUrl)
-    const reportContent = await extractReportContent(tempFilePath, fileUrl)
+    const extractedDocument = await extractDocumentContent(tempFilePath, fileUrl)
+    const reportContent = extractedDocument.content
     const relevantRules = await getRelevantRules(reportContent || `construction site report for ${projectName}`)
+
+    logger.info('Document extraction complete', {
+      sourceKind: extractedDocument.sourceKind,
+      strategy: extractedDocument.strategy,
+      ocrPerformed: extractedDocument.ocrPerformed,
+      ocrProvider: extractedDocument.ocrProvider,
+      ocrConfidence: extractedDocument.ocrConfidence,
+      contentLength: reportContent.length,
+    })
 
     const prompt = [
       SYSTEM_PROMPT,
@@ -92,22 +102,6 @@ function parseGeminiResponse(raw: string): AuditResult {
       actionableCount: 0,
     }
   }
-}
-
-async function extractReportContent(tempFilePath: string, fileUrl: string): Promise<string> {
-  const extension = path.extname(fileUrl).toLowerCase()
-
-  if (extension === '.pdf') {
-    const pdfData = await pdfParse(fs.readFileSync(tempFilePath))
-    return pdfData.text?.trim() || ''
-  }
-
-  if (['.txt', '.csv', '.md', '.json'].includes(extension)) {
-    return fs.readFileSync(tempFilePath, 'utf-8').trim()
-  }
-
-  logger.warn('No text extractor configured for this file type', { extension })
-  return ''
 }
 
 function downloadFile(url: string): Promise<string> {

@@ -47,6 +47,7 @@ Client (SvelteKit)
 | Logging | Winston |
 | Testing | Jest |
 | Containers | Docker + Docker Compose |
+| OCR | Extensible ingestion pipeline (mock/no-op scaffold today) |
 
 ---
 
@@ -187,8 +188,21 @@ cd services/ai-worker && npm test
 Tests cover:
 - Domain entity business rules (Report, Violation)
 - Project update/delete use cases
+- Ingestion routing for native text vs OCR fallback
 - State transition validation
 - AI response parsing
+
+## OCR Extension Point
+
+The OCR-ready seam lives in `services/ai-worker/src/ingestion/`.
+
+- `pipeline.ts`: chooses native text extraction vs OCR fallback
+- `ocr.ts`: selects the OCR provider from environment
+- `providers/`: place real OCR adapters here
+
+Right now the repo includes:
+- `OCR_PROVIDER=none`: OCR disabled
+- `OCR_PROVIDER=mock`: returns synthetic OCR text so you can test the path locally
 
 ---
 
