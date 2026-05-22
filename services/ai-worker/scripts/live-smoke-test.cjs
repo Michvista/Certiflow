@@ -37,32 +37,60 @@ async function main() {
   try {
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const reportUrl = `${baseUrl}/site-report.txt`;
+    const imageUrl = `${baseUrl}/construction-sign.jpg`;
 
     const auditResult = await auditReport(reportUrl, 'Smoke Test Project');
-    const ocrResult = await extractDocumentContent(imagePath, SIGN_IMAGE_URL);
-    const imageAuditResult = await auditReport(`${baseUrl}/construction-sign.jpg`, 'Smoke Test Project');
-
-    console.log(JSON.stringify({
+    const reportAuditSummary = {
       reportAudit: {
         actionableCount: auditResult.actionableCount,
         summary: auditResult.summary,
         firstViolation: auditResult.violations[0] || null,
         extraction: auditResult.extraction,
       },
-      ocrExtraction: {
-        strategy: ocrResult.strategy,
-        sourceKind: ocrResult.sourceKind,
-        ocrPerformed: ocrResult.ocrPerformed,
-        ocrProvider: ocrResult.ocrProvider || null,
-        ocrConfidence: ocrResult.ocrConfidence || null,
-        preview: ocrResult.content.slice(0, 240),
-      },
-      imageAudit: {
-        actionableCount: imageAuditResult.actionableCount,
-        summary: imageAuditResult.summary,
-        extraction: imageAuditResult.extraction,
-      },
-    }, null, 2));
+    };
+
+    writeResultFile('report-audit-result.json', reportAuditSummary);
+    printSection('FILE SEARCH AUDIT RESULT', reportAuditSummary);
+
+    try {
+      const ocrResult = await extractDocumentContent(imagePath, SIGN_IMAGE_URL);
+      const ocrSummary = {
+        ocrExtraction: {
+          strategy: ocrResult.strategy,
+          sourceKind: ocrResult.sourceKind,
+          ocrPerformed: ocrResult.ocrPerformed,
+          ocrProvider: ocrResult.ocrProvider || null,
+          ocrConfidence: ocrResult.ocrConfidence || null,
+          preview: ocrResult.content.slice(0, 240),
+        },
+      };
+
+      writeResultFile('ocr-result.json', ocrSummary);
+      printSection('OCR RESULT', ocrSummary);
+    } catch (error) {
+      printSection('OCR RESULT', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      const imageAuditResult = await auditReport(imageUrl, 'Smoke Test Project');
+      const imageAuditSummary = {
+        imageAudit: {
+          actionableCount: imageAuditResult.actionableCount,
+          summary: imageAuditResult.summary,
+          firstViolation: imageAuditResult.violations[0] || null,
+          extraction: imageAuditResult.extraction,
+        },
+      };
+
+      writeResultFile('image-audit-result.json', imageAuditSummary);
+      printSection('IMAGE AUDIT RESULT', imageAuditSummary);
+    } catch (error) {
+      printSection('IMAGE AUDIT RESULT', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }
@@ -112,6 +140,15 @@ async function downloadFile(url, destination) {
 
   const buffer = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(destination, buffer);
+}
+
+function printSection(title, payload) {
+  console.log(`\n=== ${title} ===`);
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+function writeResultFile(filename, payload) {
+  fs.writeFileSync(path.join(TEMP_DIR, filename), JSON.stringify(payload, null, 2), 'utf-8');
 }
 
 main().catch((error) => {
