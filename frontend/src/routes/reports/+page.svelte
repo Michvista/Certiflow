@@ -58,6 +58,10 @@
               <p class="muted" style="margin-top: 0.75rem;">
                 OCR processed{report.ocrProvider ? ` via ${report.ocrProvider}` : ''}{report.ocrConfidence ? ` (${Math.round(report.ocrConfidence * 100)}% confidence)` : ''}.
               </p>
+            {:else if report.extractionStrategy === 'GEMINI_FILE'}
+              <p class="muted" style="margin-top: 0.75rem;">
+                Analyzed with Gemini Files{report.ocrProvider ? ` via ${report.ocrProvider}` : ''}.
+              </p>
             {/if}
             <p class="muted" style="margin-top: 1rem;">
               {violationsByReport[report.id]?.length || 0} violation(s) linked to this report.

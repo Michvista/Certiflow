@@ -4,7 +4,7 @@ export type ViolationSeverity = 'CRITICAL' | 'MAJOR' | 'MINOR'
 
 export type ReportType = 'DAILY_SAFETY_LOG' | 'SITE_PHOTO' | 'INCIDENT_REPORT'
 
-export type ExtractionStrategy = 'NATIVE_TEXT' | 'OCR' | 'NONE'
+export type ExtractionStrategy = 'NATIVE_TEXT' | 'OCR' | 'GEMINI_FILE' | 'NONE'
 
 export interface Project {
   id: string

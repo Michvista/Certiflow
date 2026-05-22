@@ -92,5 +92,6 @@ enum ReportType {
 enum ExtractionStrategy {
   NATIVE_TEXT
   OCR
+  GEMINI_FILE
   NONE
 }

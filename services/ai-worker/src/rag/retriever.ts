@@ -1,63 +1,93 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import pdfParse from 'pdf-parse'
+import { GoogleGenAI, createPartFromUri, createUserContent } from '@google/genai'
 import { createLogger } from '@certiflow/shared'
 
-const logger = createLogger('ai-worker:rag-retriever')
+const logger = createLogger('ai-worker:gemini-files')
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+const FILE_POLL_INTERVAL_MS = 2000
+const FILE_POLL_TIMEOUT_MS = 60_000
 
-const fallbackOshaExcerpt = `
-OSHA 29 CFR 1926 - Construction Safety Standards
+interface HostedFile {
+  name: string
+  uri: string
+  mimeType?: string
+  state?: string | { name?: string } | null
+}
 
-§1926.651 - Excavations: General Requirements
-Daily inspections of excavations and nearby areas shall be made by a competent person
-for evidence of cave-ins, failures of protective systems, hazardous atmospheres, or
-other dangerous conditions.
+let cachedOshaFile: HostedFile | null = null
 
-§1926.451(g)(1) - Scaffolds: Fall Protection
-Each employee on a scaffold more than 10 feet above a lower level shall be protected by
-a personal fall arrest system or guardrail system.
+export function createGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set')
+  }
 
-§1926.100 - Head Protection
-Employees working where head injury hazards exist shall be protected by protective helmets.
+  return new GoogleGenAI({ apiKey })
+}
 
-§1926.102 - Eye and Face Protection
-Eye and face protection shall be provided when operations present a risk of injury.
-
-§1926.150 - Fire Protection
-The employer is responsible for maintaining a fire protection program throughout the work.
-`.trim()
-
-let cachedOshaText: string | null = null
-
-export async function loadOshaDocument(): Promise<string> {
-  if (cachedOshaText) {
-    logger.info('Using cached OSHA reference text')
-    return cachedOshaText
+export async function ensureHostedOshaFile(ai: GoogleGenAI): Promise<HostedFile> {
+  if (cachedOshaFile?.name) {
+    try {
+      const existing = await ai.files.get({ name: cachedOshaFile.name })
+      const active = await waitForFileActive(ai, normalizeHostedFile(existing))
+      cachedOshaFile = active
+      return active
+    } catch (error) {
+      logger.warn('Cached OSHA Gemini file was unavailable, re-uploading', { error })
+      cachedOshaFile = null
+    }
   }
 
   const oshaPdfPath = resolveOshaPdfPath()
   if (!oshaPdfPath) {
-    logger.warn('OSHA PDF not found, falling back to bundled excerpt')
-    cachedOshaText = fallbackOshaExcerpt
-    return cachedOshaText
+    throw new Error('OSHA reference PDF not found at services/ai-worker/src/rag/documents/osha-1926.pdf')
   }
 
-  logger.info('Loading OSHA PDF from disk', { oshaPdfPath })
-  const dataBuffer = fs.readFileSync(oshaPdfPath)
-  const pdfData = await pdfParse(dataBuffer)
+  const uploaded = await ai.files.upload({
+    file: oshaPdfPath,
+    config: {
+      mimeType: 'application/pdf',
+      displayName: 'OSHA 29 CFR 1926',
+    },
+  })
 
-  cachedOshaText = pdfData.text?.trim() || fallbackOshaExcerpt
-  logger.info('OSHA reference text loaded', { characters: cachedOshaText.length })
-  return cachedOshaText
+  cachedOshaFile = await waitForFileActive(ai, normalizeHostedFile(uploaded))
+  logger.info('Uploaded OSHA reference file to Gemini', { name: cachedOshaFile.name })
+  return cachedOshaFile
 }
 
-export async function getRelevantRules(reportContent: string): Promise<string> {
-  const oshaText = await loadOshaDocument()
-  const keywords = extractKeywords(reportContent)
-  const relevantSections = findRelevantSections(oshaText, keywords)
+export async function uploadReportFile(ai: GoogleGenAI, tempFilePath: string, fileUrl: string): Promise<HostedFile> {
+  const mimeType = inferMimeType(tempFilePath, fileUrl)
+  const uploaded = await ai.files.upload({
+    file: tempFilePath,
+    config: {
+      mimeType,
+      displayName: `Site report ${path.basename(tempFilePath)}`,
+    },
+  })
 
-  logger.info('Retrieved OSHA context', { keywordsFound: keywords.length })
-  return relevantSections
+  return waitForFileActive(ai, normalizeHostedFile(uploaded))
+}
+
+export function createAuditContents(reportFile: HostedFile, oshaFile: HostedFile, prompt: string) {
+  return createUserContent([
+    createPartFromUri(reportFile.uri, reportFile.mimeType || 'application/octet-stream'),
+    createPartFromUri(oshaFile.uri, oshaFile.mimeType || 'application/pdf'),
+    prompt,
+  ])
+}
+
+export async function deleteHostedFile(ai: GoogleGenAI, hostedFile: HostedFile | null) {
+  if (!hostedFile?.name) {
+    return
+  }
+
+  try {
+    await ai.files.delete({ name: hostedFile.name })
+  } catch (error) {
+    logger.warn('Failed to delete Gemini hosted file', { name: hostedFile.name, error })
+  }
 }
 
 function resolveOshaPdfPath() {
@@ -71,30 +101,77 @@ function resolveOshaPdfPath() {
   return candidates.find((candidate) => fs.existsSync(candidate)) || null
 }
 
-function extractKeywords(text: string): string[] {
-  const safetyKeywords = [
-    'excavat', 'trench', 'scaffold', 'fall', 'head', 'helmet', 'fire',
-    'eye', 'face', 'electrical', 'ladder', 'crane', 'lift', 'ppe',
-    'hazard', 'guardrail', 'harness', 'chemical', 'noise', 'respirat',
-  ]
+async function waitForFileActive(ai: GoogleGenAI, file: HostedFile): Promise<HostedFile> {
+  const startedAt = Date.now()
+  let current = file
 
-  const lowerText = text.toLowerCase()
-  return safetyKeywords.filter((keyword) => lowerText.includes(keyword))
+  while (true) {
+    const state = readFileState(current)
+
+    if (!state || state === 'ACTIVE') {
+      return current
+    }
+
+    if (state === 'FAILED') {
+      throw new Error(`Gemini file processing failed for ${current.name}`)
+    }
+
+    if (Date.now() - startedAt > FILE_POLL_TIMEOUT_MS) {
+      throw new Error(`Timed out waiting for Gemini file to become ACTIVE: ${current.name}`)
+    }
+
+    await sleep(FILE_POLL_INTERVAL_MS)
+    current = normalizeHostedFile(await ai.files.get({ name: current.name }))
+  }
 }
 
-function findRelevantSections(oshaText: string, keywords: string[]): string {
-  const sections = oshaText
-    .split(/\n\s*\n/)
-    .map((section) => section.trim())
-    .filter(Boolean)
-
-  if (keywords.length === 0) {
-    return sections.slice(0, 5).join('\n\n')
+function readFileState(file: HostedFile) {
+  if (!file.state) {
+    return null
   }
 
-  const relevant = sections.filter((section) =>
-    keywords.some((keyword) => section.toLowerCase().includes(keyword))
-  )
+  if (typeof file.state === 'string') {
+    return file.state
+  }
 
-  return (relevant.length > 0 ? relevant : sections.slice(0, 5)).join('\n\n')
+  return file.state.name || null
+}
+
+function normalizeHostedFile(file: {
+  name?: string
+  uri?: string
+  mimeType?: string
+  state?: string | { name?: string } | null
+}): HostedFile {
+  if (!file.name || !file.uri) {
+    throw new Error('Gemini file response did not include a file name and uri')
+  }
+
+  return {
+    name: file.name,
+    uri: file.uri,
+    mimeType: file.mimeType,
+    state: file.state ?? null,
+  }
+}
+
+function inferMimeType(tempFilePath: string, fileUrl: string) {
+  const extension = path.extname(fileUrl || tempFilePath).toLowerCase()
+
+  if (extension === '.pdf') return 'application/pdf'
+  if (extension === '.txt') return 'text/plain'
+  if (extension === '.md') return 'text/markdown'
+  if (extension === '.csv') return 'text/csv'
+  if (extension === '.json') return 'application/json'
+  if (extension === '.png') return 'image/png'
+  if (extension === '.jpg' || extension === '.jpeg') return 'image/jpeg'
+  if (extension === '.webp') return 'image/webp'
+  if (extension === '.gif') return 'image/gif'
+  if (extension === '.bmp') return 'image/bmp'
+  if (extension === '.tif' || extension === '.tiff') return 'image/tiff'
+  return 'application/octet-stream'
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }

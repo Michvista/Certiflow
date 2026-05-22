@@ -68,6 +68,9 @@
             {#if report.ocrProvider}
               via <strong>{report.ocrProvider}</strong>
             {/if}
+            {#if report.extractionStrategy === 'GEMINI_FILE'}
+              using hosted file analysis
+            {/if}
             {#if report.ocrConfidence}
               at <strong>{Math.round(report.ocrConfidence * 100)}%</strong> confidence
             {/if}

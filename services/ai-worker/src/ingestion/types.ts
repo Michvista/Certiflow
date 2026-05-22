@@ -1,4 +1,4 @@
-export type ExtractionStrategy = 'NATIVE_TEXT' | 'OCR' | 'NONE'
+export type ExtractionStrategy = 'NATIVE_TEXT' | 'OCR' | 'GEMINI_FILE' | 'NONE'
 
 export type SourceKind = 'pdf' | 'text' | 'image' | 'unknown'
 

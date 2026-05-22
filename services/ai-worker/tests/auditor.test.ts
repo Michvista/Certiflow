@@ -1,30 +1,3 @@
-jest.mock('@google/generative-ai', () => ({
-  GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest.fn().mockReturnValue({
-      generateContent: jest.fn().mockResolvedValue({
-        response: {
-          text: () => JSON.stringify({
-            violations: [
-              {
-                severity: 'CRITICAL',
-                ruleReference: 'OSHA §1926.651',
-                description: 'No competent person inspection before excavation',
-                suggestion: 'Assign competent person immediately',
-                sector: 'Sector 4',
-              },
-            ],
-            summary: 'One critical violation found in excavation area.',
-            actionableCount: 1,
-          }),
-        },
-      }),
-    }),
-  })),
-}))
-
-jest.mock('fs')
-jest.mock('https')
-
 describe('Auditor Response Parsing', () => {
   it('correctly parses a valid Gemini JSON response', () => {
     const validResponse = JSON.stringify({

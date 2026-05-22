@@ -2,10 +2,8 @@ import * as fs from 'fs'
 import * as http from 'http'
 import * as https from 'https'
 import * as path from 'path'
-import { GoogleGenerativeAI } from '@google/generative-ai'
 import { AuditResult, createLogger } from '@certiflow/shared'
-import { getRelevantRules } from '../rag/retriever'
-import { extractDocumentContent } from '../ingestion/pipeline'
+import { createAuditContents, createGeminiClient, deleteHostedFile, ensureHostedOshaFile, uploadReportFile } from '../rag/retriever'
 
 const logger = createLogger('ai-worker:auditor')
 
@@ -32,59 +30,54 @@ If no violations are found, return an empty array and a compliant summary.
 `.trim()
 
 export async function auditReport(fileUrl: string, projectName: string): Promise<AuditResult> {
-  const geminiApiKey = process.env.GEMINI_API_KEY
-  if (!geminiApiKey) {
-    throw new Error('GEMINI_API_KEY is not set')
-  }
-
-  const genAI = new GoogleGenerativeAI(geminiApiKey)
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+  const ai = createGeminiClient()
 
   logger.info('Starting AI audit', { projectName, fileUrl })
 
   let tempFilePath: string | null = null
+  let hostedReportFile: Awaited<ReturnType<typeof uploadReportFile>> | null = null
 
   try {
     tempFilePath = await downloadFile(fileUrl)
-    const extractedDocument = await extractDocumentContent(tempFilePath, fileUrl)
-    const reportContent = extractedDocument.content
-    const relevantRules = await getRelevantRules(reportContent || `construction site report for ${projectName}`)
+    const hostedOshaFile = await ensureHostedOshaFile(ai)
+    hostedReportFile = await uploadReportFile(ai, tempFilePath, fileUrl)
 
-    logger.info('Document extraction complete', {
-      sourceKind: extractedDocument.sourceKind,
-      strategy: extractedDocument.strategy,
-      ocrPerformed: extractedDocument.ocrPerformed,
-      ocrProvider: extractedDocument.ocrProvider,
-      ocrConfidence: extractedDocument.ocrConfidence,
-      contentLength: reportContent.length,
+    logger.info('Gemini files ready for audit', {
+      reportFileName: hostedReportFile.name,
+      oshaFileName: hostedOshaFile.name,
     })
 
     const prompt = [
       SYSTEM_PROMPT,
       `Project: ${projectName}`,
-      'Relevant OSHA Regulations:',
-      relevantRules,
-      'Report Content:',
-      reportContent || `A report file was provided at ${fileUrl}, but readable text could not be extracted.`,
+      'Use the uploaded site report file as the primary evidence.',
+      'Use the uploaded OSHA 29 CFR 1926 file as the compliance source of truth.',
       'Return only the JSON response.',
     ].join('\n\n')
 
-    const result = await model.generateContent(prompt)
-    const rawResponse = result.response.text()
+    const result = await ai.models.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      contents: createAuditContents(hostedReportFile, hostedOshaFile, prompt),
+    })
+    const rawResponse = result.text ?? ''
 
     logger.info('Gemini analysis complete, parsing response')
-    return parseGeminiResponse(rawResponse, extractedDocument)
+    return parseGeminiResponse(rawResponse, fileUrl)
   } catch (error) {
     logger.error('Audit failed', { error })
     throw error
   } finally {
+    await deleteHostedFile(ai, hostedReportFile)
+
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       fs.unlinkSync(tempFilePath)
     }
   }
 }
 
-function parseGeminiResponse(raw: string, extractedDocument: Awaited<ReturnType<typeof extractDocumentContent>>): AuditResult {
+function parseGeminiResponse(raw: string, fileUrl: string): AuditResult {
+  const sourceKind = detectSourceKind(fileUrl)
+
   try {
     const cleaned = raw.replace(/```json|```/g, '').trim()
     const parsed = JSON.parse(cleaned)
@@ -94,11 +87,10 @@ function parseGeminiResponse(raw: string, extractedDocument: Awaited<ReturnType<
       summary: parsed.summary || 'Analysis complete.',
       actionableCount: parsed.actionableCount || parsed.violations?.length || 0,
       extraction: {
-        strategy: extractedDocument.strategy,
-        sourceKind: extractedDocument.sourceKind,
-        ocrPerformed: extractedDocument.ocrPerformed,
-        ocrProvider: extractedDocument.ocrProvider,
-        ocrConfidence: extractedDocument.ocrConfidence,
+        strategy: 'GEMINI_FILE',
+        sourceKind,
+        ocrPerformed: sourceKind === 'image',
+        ocrProvider: 'gemini-files',
       },
     }
   } catch (error) {
@@ -108,14 +100,22 @@ function parseGeminiResponse(raw: string, extractedDocument: Awaited<ReturnType<
       summary: 'AI analysis could not be parsed. Manual review required.',
       actionableCount: 0,
       extraction: {
-        strategy: extractedDocument.strategy,
-        sourceKind: extractedDocument.sourceKind,
-        ocrPerformed: extractedDocument.ocrPerformed,
-        ocrProvider: extractedDocument.ocrProvider,
-        ocrConfidence: extractedDocument.ocrConfidence,
+        strategy: 'GEMINI_FILE',
+        sourceKind,
+        ocrPerformed: sourceKind === 'image',
+        ocrProvider: 'gemini-files',
       },
     }
   }
+}
+
+function detectSourceKind(fileUrl: string): AuditResult['extraction']['sourceKind'] {
+  const extension = path.extname(fileUrl).toLowerCase()
+
+  if (extension === '.pdf') return 'pdf'
+  if (['.txt', '.csv', '.md', '.json'].includes(extension)) return 'text'
+  if (['.png', '.jpg', '.jpeg', '.webp', '.tif', '.tiff', '.bmp', '.gif'].includes(extension)) return 'image'
+  return 'unknown'
 }
 
 function downloadFile(url: string): Promise<string> {

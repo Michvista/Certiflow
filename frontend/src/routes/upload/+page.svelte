@@ -135,7 +135,7 @@
             <p class="muted">Ready to upload.</p>
           {:else}
             <p>Drop files here or click to upload.</p>
-            <p class="muted">Supports PDF, JPG, PNG, TIFF, CSV. Scanned PDFs and images are routed through OCR. Max 50 MB.</p>
+            <p class="muted">Supports PDF, JPG, PNG, TIFF, CSV. Files are sent to Gemini Files for audit analysis. Max 50 MB.</p>
           {/if}
           <input type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.csv" on:change={handleFileChange} style="margin-top: 1rem;" />
         </div>
