@@ -1,0 +1,19 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+COPY api-gateway/package.json ./api-gateway/package.json
+COPY services/compliance-service/package.json ./services/compliance-service/package.json
+COPY services/ai-worker/package.json ./services/ai-worker/package.json
+COPY shared/package.json ./shared/package.json
+COPY frontend/package.json ./frontend/package.json
+
+RUN npm install
+
+COPY . .
+
+RUN npm run build --workspace=shared
+RUN npm run prisma:generate --workspace=services/compliance-service
+
+EXPOSE 3000 3001 3002 5173

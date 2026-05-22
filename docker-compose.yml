@@ -25,9 +25,11 @@ services:
 
   api-gateway:
     build:
-      context: ./api-gateway
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.dev
     container_name: certiflow-gateway
+    working_dir: /app
+    command: sh -c "npm run build --workspace=shared && npm run dev --workspace=api-gateway"
     ports:
       - "3000:3000"
     environment:
@@ -44,15 +46,19 @@ services:
       watch:
         - action: sync
           path: ./api-gateway/src
-          target: /app/src
+          target: /app/api-gateway/src
         - action: rebuild
           path: ./api-gateway/package.json
+        - action: rebuild
+          path: ./shared/src
 
   compliance-service:
     build:
-      context: ./services/compliance-service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.dev
     container_name: certiflow-compliance
+    working_dir: /app
+    command: sh -c "npm run build --workspace=shared && npm run prisma:generate --workspace=services/compliance-service && npm run dev --workspace=services/compliance-service"
     ports:
       - "3001:3001"
     environment:
@@ -72,18 +78,22 @@ services:
       watch:
         - action: sync
           path: ./services/compliance-service/src
-          target: /app/src
+          target: /app/services/compliance-service/src
         - action: sync
           path: ./services/compliance-service/prisma
-          target: /app/prisma
+          target: /app/services/compliance-service/prisma
         - action: rebuild
           path: ./services/compliance-service/package.json
+        - action: rebuild
+          path: ./shared/src
 
   ai-worker:
     build:
-      context: ./services/ai-worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: Dockerfile.dev
     container_name: certiflow-ai-worker
+    working_dir: /app
+    command: sh -c "npm run build --workspace=shared && npm run dev --workspace=services/ai-worker"
     ports:
       - "3002:3002"
     environment:
@@ -102,9 +112,36 @@ services:
       watch:
         - action: sync
           path: ./services/ai-worker/src
-          target: /app/src
+          target: /app/services/ai-worker/src
         - action: rebuild
           path: ./services/ai-worker/package.json
+        - action: rebuild
+          path: ./shared/src
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: certiflow-frontend
+    working_dir: /app
+    command: sh -c "npm run build --workspace=shared && npm run dev --workspace=frontend -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      PUBLIC_API_BASE_URL: http://localhost:3000/api
+    depends_on:
+      - api-gateway
+    networks:
+      - certiflow-network
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/frontend/src
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./shared/src
 
 volumes:
   compliance_data:
