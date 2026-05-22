@@ -91,6 +91,9 @@ services:
       REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://certiflow:certiflow_password@postgres-compliance:5432/compliance_db}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OCR_PROVIDER: ${OCR_PROVIDER:-google-vision}
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
+      GOOGLE_APPLICATION_CREDENTIALS_JSON: ${GOOGLE_APPLICATION_CREDENTIALS_JSON}
     depends_on:
       - redis
     networks:
