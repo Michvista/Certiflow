@@ -1,4 +1,10 @@
 jest.mock('pdf-parse', () => jest.fn())
+jest.mock('@google-cloud/vision', () => ({
+  ImageAnnotatorClient: jest.fn().mockImplementation(() => ({
+    documentTextDetection: jest.fn(),
+    batchAnnotateFiles: jest.fn(),
+  })),
+}))
 jest.mock('fs', () => ({
   readFileSync: jest.fn(),
 }))

@@ -1,34 +1,20 @@
 import * as fs from 'fs'
-import { GoogleAuth } from 'google-auth-library'
+import * as vision from '@google-cloud/vision'
+import { createLogger } from '@certiflow/shared'
 import type { OcrProvider, OcrResult, SourceKind } from '../types'
-
-type AnnotateImageResponse = {
-  responses?: Array<{
-    fullTextAnnotation?: {
-      text?: string
-      pages?: Array<{ confidence?: number }>
-    }
-    textAnnotations?: Array<{ description?: string }>
-  }>
-}
-
-type AnnotateFileResponse = {
-  responses?: Array<{
-    responses?: Array<{
-      fullTextAnnotation?: {
-        text?: string
-        pages?: Array<{ confidence?: number }>
-      }
-    }>
-  }>
-}
-
-const VISION_SCOPE = 'https://www.googleapis.com/auth/cloud-platform'
+const logger = createLogger('ai-worker:google-vision-ocr')
 
 export class GoogleVisionOcrProvider implements OcrProvider {
   readonly name = 'google-vision'
-  private readonly auth = createGoogleAuth()
-  private readonly quotaProjectId = resolveQuotaProjectId()
+  private readonly credentialInfo = resolveCredentialInfo()
+  private readonly client = createVisionClient(this.credentialInfo)
+
+  constructor() {
+    logger.info('Google Vision OCR credential context', {
+      credentialSource: this.credentialInfo.source,
+      serviceAccountEmail: this.credentialInfo.clientEmail,
+    })
+  }
 
   async extractText(input: { tempFilePath: string; fileUrl: string; sourceKind: SourceKind }): Promise<OcrResult | null> {
     if (input.sourceKind === 'image') {
@@ -43,18 +29,11 @@ export class GoogleVisionOcrProvider implements OcrProvider {
   }
 
   private async extractImageText(tempFilePath: string): Promise<OcrResult | null> {
-    const body = {
-      requests: [
-        {
-          image: { content: fs.readFileSync(tempFilePath).toString('base64') },
-          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-        },
-      ],
-    }
-
-    const response = await this.postJson<AnnotateImageResponse>('https://vision.googleapis.com/v1/images:annotate', body)
-    const document = response.responses?.[0]
-    const text = document?.fullTextAnnotation?.text?.trim() || document?.textAnnotations?.[0]?.description?.trim() || ''
+    const [result] = await this.client.documentTextDetection({
+      image: { content: fs.readFileSync(tempFilePath) },
+    })
+    const document = result.fullTextAnnotation
+    const text = document?.text?.trim() || result.textAnnotations?.[0]?.description?.trim() || ''
 
     if (!text) {
       return null
@@ -62,26 +41,25 @@ export class GoogleVisionOcrProvider implements OcrProvider {
 
     return {
       text,
-      confidence: averageConfidence(document?.fullTextAnnotation?.pages),
+      confidence: averageConfidence(normalizePages(document?.pages)),
       provider: this.name,
     }
   }
 
   private async extractPdfText(tempFilePath: string): Promise<OcrResult | null> {
-    const body = {
+    const [result] = await this.client.batchAnnotateFiles({
       requests: [
         {
           inputConfig: {
             mimeType: 'application/pdf',
-            content: fs.readFileSync(tempFilePath).toString('base64'),
+            content: fs.readFileSync(tempFilePath),
           },
           features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
         },
       ],
-    }
+    })
 
-    const response = await this.postJson<AnnotateFileResponse>('https://vision.googleapis.com/v1/files:annotate', body)
-    const pages = response.responses?.[0]?.responses || []
+    const pages = normalizeAnnotateResponses(result.responses?.[0]?.responses)
     const texts = pages
       .map((page) => page.fullTextAnnotation?.text?.trim() || '')
       .filter(Boolean)
@@ -93,32 +71,10 @@ export class GoogleVisionOcrProvider implements OcrProvider {
     return {
       text: texts.join('\n\n'),
       confidence: averageConfidence(
-        pages.flatMap((page) => page.fullTextAnnotation?.pages || []),
+        pages.flatMap((page) => normalizePages(page.fullTextAnnotation?.pages)),
       ),
       provider: this.name,
     }
-  }
-
-  private async postJson<T>(url: string, body: unknown): Promise<T> {
-    const client = await this.auth.getClient()
-    const headers = await client.getRequestHeaders()
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-        ...(this.quotaProjectId ? { 'x-goog-user-project': this.quotaProjectId } : {}),
-      },
-      body: JSON.stringify(body),
-    })
-
-    if (!response.ok) {
-      const details = await response.text()
-      throw new Error(`Google Vision OCR request failed with ${response.status}: ${details}`)
-    }
-
-    return response.json() as Promise<T>
   }
 }
 
@@ -131,27 +87,20 @@ function averageConfidence(pages?: Array<{ confidence?: number }>): number | und
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
-function createGoogleAuth() {
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()
-  if (credentialsPath) {
-    return new GoogleAuth({
-      scopes: [VISION_SCOPE],
-      keyFilename: credentialsPath,
-    })
-  }
+function normalizePages(pages?: Array<{ confidence?: number | null } | null> | null): Array<{ confidence?: number }> {
+  return (pages || [])
+    .filter((page): page is { confidence?: number | null } => Boolean(page))
+    .map((page) => ({
+      confidence: page.confidence ?? undefined,
+    }))
+}
 
-  const inlineCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
-
-  if (inlineCredentials) {
-    const credentials = parseInlineCredentials(inlineCredentials)
-
-    return new GoogleAuth({
-      scopes: [VISION_SCOPE],
-      credentials,
-    })
-  }
-
-  return new GoogleAuth({ scopes: [VISION_SCOPE] })
+function normalizeAnnotateResponses(
+  responses?: Array<{ fullTextAnnotation?: { text?: string | null; pages?: Array<{ confidence?: number | null } | null> | null } | null } | null> | null,
+) {
+  return (responses || []).filter(
+    (response): response is { fullTextAnnotation?: { text?: string | null; pages?: Array<{ confidence?: number | null } | null> | null } | null } => Boolean(response),
+  )
 }
 
 function parseInlineCredentials(value: string): { client_email?: string; private_key?: string } {
@@ -162,26 +111,60 @@ function parseInlineCredentials(value: string): { client_email?: string; private
   }
 }
 
-function resolveQuotaProjectId() {
-  if (process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim()) {
-    return process.env.GOOGLE_CLOUD_QUOTA_PROJECT.trim()
-  }
-
+function resolveCredentialInfo() {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()
   if (credentialsPath && fs.existsSync(credentialsPath)) {
-    const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8')) as { project_id?: string }
-    return credentials.project_id
+    const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8')) as {
+      client_email?: string
+    }
+
+    return {
+      source: 'keyFilename',
+      keyFilename: credentialsPath,
+      clientEmail: credentials.client_email,
+    }
   }
 
   const inlineCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
   if (inlineCredentials) {
     try {
-      const credentials = parseInlineCredentials(inlineCredentials) as { project_id?: string }
-      return credentials.project_id
+      const credentials = parseInlineCredentials(inlineCredentials) as { client_email?: string }
+      return {
+        source: 'inlineJson',
+        keyFilename: undefined,
+        clientEmail: credentials.client_email,
+      }
     } catch {
-      return undefined
+      return {
+        source: 'inlineJson',
+        keyFilename: undefined,
+        clientEmail: undefined,
+      }
     }
   }
 
-  return process.env.GOOGLE_CLOUD_PROJECT?.trim()
+  return {
+    source: 'defaultCredentials',
+    keyFilename: undefined,
+    clientEmail: undefined,
+  }
+}
+
+function createVisionClient(credentialInfo: ReturnType<typeof resolveCredentialInfo>) {
+  if (credentialInfo.source === 'keyFilename' && credentialInfo.keyFilename) {
+    return new vision.ImageAnnotatorClient({
+      keyFilename: credentialInfo.keyFilename,
+      projectId: process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim() || process.env.GOOGLE_CLOUD_PROJECT?.trim(),
+    })
+  }
+
+  const inlineCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON?.trim()
+  if (credentialInfo.source === 'inlineJson' && inlineCredentials) {
+    return new vision.ImageAnnotatorClient({
+      credentials: parseInlineCredentials(inlineCredentials),
+      projectId: process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim() || process.env.GOOGLE_CLOUD_PROJECT?.trim(),
+    })
+  }
+
+  return new vision.ImageAnnotatorClient()
 }
