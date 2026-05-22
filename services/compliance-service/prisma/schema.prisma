@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects Project[]
+
+  @@map("users")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  location  String
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id])
+  reports Report[]
+
+  @@map("projects")
+}
+
+model Report {
+  id         String       @id @default(cuid())
+  projectId  String
+  reportType ReportType
+  fileUrl    String
+  status     ReportStatus @default(PENDING)
+  notes      String?
+  uploadedAt DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  project    Project     @relation(fields: [projectId], references: [id])
+  violations Violation[]
+
+  @@map("reports")
+}
+
+model Violation {
+  id            String            @id @default(cuid())
+  reportId      String
+  ruleReference String
+  severity      ViolationSeverity
+  description   String
+  suggestion    String
+  sector        String?
+  isResolved    Boolean           @default(false)
+  detectedAt    DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  report Report @relation(fields: [reportId], references: [id])
+
+  @@map("violations")
+}
+
+enum ReportStatus {
+  PENDING
+  ANALYZING
+  COMPLETE
+  FAILED
+}
+
+enum ViolationSeverity {
+  CRITICAL
+  MAJOR
+  MINOR
+}
+
+enum ReportType {
+  DAILY_SAFETY_LOG
+  SITE_PHOTO
+  INCIDENT_REPORT
+}

@@ -1,0 +1,112 @@
+services:
+  postgres-compliance:
+    image: postgres:15-alpine
+    container_name: certiflow-compliance-db
+    environment:
+      POSTGRES_USER: certiflow
+      POSTGRES_PASSWORD: certiflow_password
+      POSTGRES_DB: compliance_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - compliance_data:/var/lib/postgresql/data
+    networks:
+      - certiflow-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: certiflow-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - certiflow-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: certiflow-gateway
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      COMPLIANCE_SERVICE_URL: http://compliance-service:3001
+      AI_WORKER_URL: http://ai-worker:3002
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - compliance-service
+      - ai-worker
+    networks:
+      - certiflow-network
+    develop:
+      watch:
+        - action: sync
+          path: ./api-gateway/src
+          target: /app/src
+        - action: rebuild
+          path: ./api-gateway/package.json
+
+  compliance-service:
+    build:
+      context: ./services/compliance-service
+      dockerfile: Dockerfile
+    container_name: certiflow-compliance
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://certiflow:certiflow_password@postgres-compliance:5432/compliance_db}
+      REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+    depends_on:
+      - postgres-compliance
+      - redis
+    networks:
+      - certiflow-network
+    develop:
+      watch:
+        - action: sync
+          path: ./services/compliance-service/src
+          target: /app/src
+        - action: sync
+          path: ./services/compliance-service/prisma
+          target: /app/prisma
+        - action: rebuild
+          path: ./services/compliance-service/package.json
+
+  ai-worker:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    container_name: certiflow-ai-worker
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: development
+      REDIS_URL: ${COMPOSE_REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:-postgresql://certiflow:certiflow_password@postgres-compliance:5432/compliance_db}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+    depends_on:
+      - redis
+    networks:
+      - certiflow-network
+    develop:
+      watch:
+        - action: sync
+          path: ./services/ai-worker/src
+          target: /app/src
+        - action: rebuild
+          path: ./services/ai-worker/package.json
+
+volumes:
+  compliance_data:
+  redis_data:
+
+networks:
+  certiflow-network:
+    driver: bridge

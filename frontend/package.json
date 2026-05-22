@@ -1,0 +1,22 @@
+{
+  "name": "@certiflow/frontend",
+  "version": "1.0.0",
+  "description": "CertiFlow SvelteKit Dashboard",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^3.0.0",
+    "@sveltejs/kit": "^2.0.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^8.0.0",
+    "tailwindcss": "^3.4.1"
+  },
+  "dependencies": {
+    "@certiflow/shared": "1.0.0"
+  },
+  "type": "module"
+}

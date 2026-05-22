@@ -1,0 +1,20 @@
+{
+  "name": "certiflow",
+  "version": "1.0.0",
+  "description": "CertiFlow - Digital AI Compliance Worker for Construction",
+  "private": true,
+  "workspaces": [
+    "api-gateway",
+    "services/*",
+    "shared",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=shared\" \"npm run dev --workspace=api-gateway\" \"npm run dev --workspace=services/compliance-service\" \"npm run dev --workspace=services/ai-worker\" \"npm run dev --workspace=frontend\"",
+    "build": "npm run build --workspace=shared && npm run build --workspace=api-gateway && npm run build --workspace=services/compliance-service && npm run build --workspace=services/ai-worker && npm run build --workspace=frontend",
+    "test": "npm run test --workspace=api-gateway && npm run test --workspace=services/compliance-service && npm run test --workspace=services/ai-worker"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
