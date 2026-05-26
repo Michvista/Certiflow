@@ -17,6 +17,13 @@ const PORT = process.env.GATEWAY_PORT || 3000
 const COMPLIANCE_SERVICE_URL = process.env.COMPLIANCE_SERVICE_URL || 'http://localhost:3001'
 const AI_WORKER_URL = process.env.AI_WORKER_URL || 'http://localhost:3002'
 
+const proxyToCompliance = (prefix: string) =>
+  createProxyMiddleware({
+    target: COMPLIANCE_SERVICE_URL,
+    changeOrigin: true,
+    pathRewrite: (path) => `${prefix}${path}`,
+  })
+
 app.use(helmet())
 app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }))
 app.use(morgan('combined'))
@@ -35,37 +42,25 @@ app.get('/health', (_req, res) => {
 
 app.use(
   '/api/auth',
-  createProxyMiddleware({
-    target: COMPLIANCE_SERVICE_URL,
-    changeOrigin: true,
-  })
+  proxyToCompliance('/api/auth')
 )
 
 app.use(
   '/api/projects',
   authMiddleware,
-  createProxyMiddleware({
-    target: COMPLIANCE_SERVICE_URL,
-    changeOrigin: true,
-  })
+  proxyToCompliance('/api/projects')
 )
 
 app.use(
   '/api/reports',
   authMiddleware,
-  createProxyMiddleware({
-    target: COMPLIANCE_SERVICE_URL,
-    changeOrigin: true,
-  })
+  proxyToCompliance('/api/reports')
 )
 
 app.use(
   '/api/violations',
   authMiddleware,
-  createProxyMiddleware({
-    target: COMPLIANCE_SERVICE_URL,
-    changeOrigin: true,
-  })
+  proxyToCompliance('/api/violations')
 )
 
 app.use(errorMiddleware)

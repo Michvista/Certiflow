@@ -10,6 +10,11 @@ services:
       - "5433:5432"
     volumes:
       - compliance_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U certiflow -d compliance_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     networks:
       - certiflow-network
 
@@ -20,6 +25,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     networks:
       - certiflow-network
 
@@ -37,9 +47,16 @@ services:
       COMPLIANCE_SERVICE_URL: http://compliance-service:3001
       AI_WORKER_URL: http://ai-worker:3002
       JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     depends_on:
-      - compliance-service
-      - ai-worker
+      compliance-service:
+        condition: service_healthy
+      ai-worker:
+        condition: service_started
     networks:
       - certiflow-network
     develop:
@@ -58,7 +75,7 @@ services:
       dockerfile: Dockerfile.dev
     container_name: certiflow-compliance
     working_dir: /app
-    command: sh -c "npm run build --workspace=shared && npm run prisma:generate --workspace=services/compliance-service && npm run dev --workspace=services/compliance-service"
+    command: sh -c "npm run build --workspace=shared && npx prisma db push --schema services/compliance-service/prisma/schema.prisma && npm run prisma:generate --workspace=services/compliance-service && npm run dev --workspace=services/compliance-service"
     ports:
       - "3001:3001"
     environment:
@@ -69,9 +86,16 @@ services:
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
       JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 5s
+      timeout: 5s
+      retries: 24
     depends_on:
-      - postgres-compliance
-      - redis
+      postgres-compliance:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - certiflow-network
     develop:
@@ -105,7 +129,10 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS}
       GOOGLE_APPLICATION_CREDENTIALS_JSON: ${GOOGLE_APPLICATION_CREDENTIALS_JSON}
     depends_on:
-      - redis
+      postgres-compliance:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - certiflow-network
     develop:
@@ -130,7 +157,8 @@ services:
     environment:
       PUBLIC_API_BASE_URL: http://localhost:3000/api
     depends_on:
-      - api-gateway
+      api-gateway:
+        condition: service_healthy
     networks:
       - certiflow-network
     develop:
