@@ -1,6 +1,7 @@
 import { prisma } from '../prisma/client'
 import { IViolationRepository } from '../../domain/repositories'
 import { ViolationEntity } from '../../domain/entities/Violation.entity'
+import { ViolationSeverityVO } from '../../domain/value-objects/ViolationSeverity.vo'
 import { ViolationSeverity } from '@certiflow/shared'
 
 type ViolationRecord = {
@@ -21,7 +22,7 @@ export class PrismaViolationRepository implements IViolationRepository {
       id: record.id,
       reportId: record.reportId,
       ruleReference: record.ruleReference,
-      severity: record.severity,
+      severity: ViolationSeverityVO.fromString(record.severity),
       description: record.description,
       suggestion: record.suggestion,
       sector: record.sector ?? undefined,
@@ -69,7 +70,7 @@ export class PrismaViolationRepository implements IViolationRepository {
         id: record.id,
         reportId: record.reportId,
         ruleReference: record.ruleReference,
-        severity: record.severity,
+        severity: record.severity.toString() as ViolationSeverity,
         description: record.description,
         suggestion: record.suggestion,
         sector: record.sector ?? null,
@@ -78,7 +79,12 @@ export class PrismaViolationRepository implements IViolationRepository {
       })),
     })
 
-    return records.map((record) => this.toDomain({ ...record, sector: record.sector ?? null }))
+    return records.map((record) =>
+      this.toDomain({
+        ...record,
+        sector: record.sector ?? null,
+      } as ViolationRecord),
+    )
   }
 
   async update(violation: ViolationEntity): Promise<ViolationEntity> {
@@ -87,7 +93,7 @@ export class PrismaViolationRepository implements IViolationRepository {
       where: { id: data.id },
       data: {
         ruleReference: data.ruleReference,
-        severity: data.severity,
+        severity: data.severity.toString() as ViolationSeverity,
         description: data.description,
         suggestion: data.suggestion,
         sector: data.sector ?? null,

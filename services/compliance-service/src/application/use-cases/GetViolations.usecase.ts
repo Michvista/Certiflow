@@ -18,9 +18,11 @@ export class GetViolationsUseCase {
 
     const violations = await this.violationRepository.findByReportId(reportId)
 
+    // Sort by severity urgency using VO comparison logic
     return violations.sort((a, b) => {
-      const priority = { CRITICAL: 3, MAJOR: 2, MINOR: 1 }
-      return priority[b.severity] - priority[a.severity]
+      if (b.severity.isMoreUrgentThan(a.severity)) return 1
+      if (a.severity.isMoreUrgentThan(b.severity)) return -1
+      return 0
     })
   }
 }

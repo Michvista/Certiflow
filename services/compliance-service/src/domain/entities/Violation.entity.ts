@@ -1,10 +1,10 @@
-import { ViolationSeverity } from '@certiflow/shared'
+import { ViolationSeverityVO } from '../value-objects/ViolationSeverity.vo'
 
 interface ViolationProps {
   id: string
   reportId: string
   ruleReference: string
-  severity: ViolationSeverity
+  severity: ViolationSeverityVO
   description: string
   suggestion: string
   sector?: string
@@ -30,7 +30,7 @@ export class ViolationEntity {
   get detectedAt() { return this.props.detectedAt }
 
   requiresImmediateAttention(): boolean {
-    return this.props.severity === 'CRITICAL' && !this.props.isResolved
+    return this.props.severity.isCritical() && !this.props.isResolved
   }
 
   canBeResolved(): boolean {

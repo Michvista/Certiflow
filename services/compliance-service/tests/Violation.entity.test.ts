@@ -1,12 +1,13 @@
 import { ViolationEntity } from '../src/domain/entities/Violation.entity'
+import { ViolationSeverityVO } from '../src/domain/value-objects/ViolationSeverity.vo'
 
 describe('ViolationEntity', () => {
   const makeViolation = (isResolved = false) =>
-    new (ViolationEntity as any)({
+    new ViolationEntity({
       id: 'viol-123',
       reportId: 'report-456',
       ruleReference: 'OSHA §1926.651',
-      severity: 'CRITICAL',
+      severity: ViolationSeverityVO.critical(),
       description: 'No competent person inspection before excavation',
       suggestion: 'Assign a competent person immediately',
       isResolved,
@@ -30,6 +31,20 @@ describe('ViolationEntity', () => {
 
     it('returns false for resolved CRITICAL violations', () => {
       expect(makeViolation(true).requiresImmediateAttention()).toBe(false)
+    })
+
+    it('returns false for unresolved non-CRITICAL violations', () => {
+      const nonCriticalViolation = new ViolationEntity({
+        id: 'viol-456',
+        reportId: 'report-789',
+        ruleReference: 'OSHA §1926.650',
+        severity: ViolationSeverityVO.major(),
+        description: 'Missing guardrails',
+        suggestion: 'Install guardrails',
+        isResolved: false,
+        detectedAt: new Date(),
+      })
+      expect(nonCriticalViolation.requiresImmediateAttention()).toBe(false)
     })
   })
 
