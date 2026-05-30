@@ -27,19 +27,20 @@ FROM deps AS build
 COPY . .
 
 RUN npm run build --workspace=shared
-RUN npm run build --workspace=services/ai-worker
+RUN npm run build --workspace=frontend
 RUN npm prune --omit=dev && npm cache clean --force
 
 FROM base AS runtime
 
 ENV NODE_ENV=production
-ENV PORT=3002
+ENV PORT=5173
+ENV HOST=0.0.0.0
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/shared/package.json ./shared/package.json
 COPY --from=build /app/shared/dist ./shared/dist
-COPY --from=build /app/services/ai-worker/package.json ./services/ai-worker/package.json
-COPY --from=build /app/services/ai-worker/dist ./services/ai-worker/dist
+COPY --from=build /app/frontend/package.json ./frontend/package.json
+COPY --from=build /app/frontend/build ./frontend/build
 
-EXPOSE 3002
-CMD ["node", "services/ai-worker/dist/index.js"]
+EXPOSE 5173
+CMD ["node", "frontend/build"]
