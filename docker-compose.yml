@@ -58,6 +58,14 @@ services:
         condition: service_started
     networks:
       - certiflow-network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./api-gateway/src
+        - action: rebuild
+          path: ./api-gateway/package.json
+        - action: rebuild
+          path: ./shared/src
 
   compliance-service:
     build:
@@ -87,6 +95,16 @@ services:
         condition: service_healthy
     networks:
       - certiflow-network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/compliance-service/src
+        - action: rebuild
+          path: ./services/compliance-service/prisma
+        - action: rebuild
+          path: ./services/compliance-service/package.json
+        - action: rebuild
+          path: ./shared/src
 
   ai-worker:
     build:
@@ -120,6 +138,14 @@ services:
         condition: service_healthy
     networks:
       - certiflow-network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./services/ai-worker/src
+        - action: rebuild
+          path: ./services/ai-worker/package.json
+        - action: rebuild
+          path: ./shared/src
 
   frontend:
     build:
@@ -136,6 +162,16 @@ services:
         condition: service_healthy
     networks:
       - certiflow-network
+    develop:
+      watch:
+        - action: rebuild
+          path: ./frontend/src
+        - action: rebuild
+          path: ./frontend/static
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./shared/src
 
 volumes:
   compliance_data:
