@@ -2,13 +2,12 @@ import { prisma } from '../prisma/client'
 import { IViolationRepository } from '../../domain/repositories'
 import { ViolationEntity } from '../../domain/entities/Violation.entity'
 import { ViolationSeverityVO } from '../../domain/value-objects/ViolationSeverity.vo'
-import { ViolationSeverity } from '@certiflow/shared'
 
 type ViolationRecord = {
   id: string
   reportId: string
   ruleReference: string
-  severity: ViolationSeverity
+  severity: string
   description: string
   suggestion: string
   sector: string | null
@@ -70,7 +69,7 @@ export class PrismaViolationRepository implements IViolationRepository {
         id: record.id,
         reportId: record.reportId,
         ruleReference: record.ruleReference,
-        severity: record.severity.toString() as ViolationSeverity,
+        severity: record.severity.toString(),
         description: record.description,
         suggestion: record.suggestion,
         sector: record.sector ?? null,
@@ -82,6 +81,7 @@ export class PrismaViolationRepository implements IViolationRepository {
     return records.map((record) =>
       this.toDomain({
         ...record,
+        severity: record.severity.toString(),
         sector: record.sector ?? null,
       } as ViolationRecord),
     )
@@ -93,7 +93,7 @@ export class PrismaViolationRepository implements IViolationRepository {
       where: { id: data.id },
       data: {
         ruleReference: data.ruleReference,
-        severity: data.severity.toString() as ViolationSeverity,
+        severity: data.severity.toString(),
         description: data.description,
         suggestion: data.suggestion,
         sector: data.sector ?? null,

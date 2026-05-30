@@ -23,7 +23,7 @@
     const stopStatusMonitor = storedSession ? startReportStatusMonitor() : () => {}
 
     if (!isPublicPage && !storedSession) {
-      goto('/auth')
+      goto('/401')
     }
 
     return () => {
