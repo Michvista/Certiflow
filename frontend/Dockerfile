@@ -23,6 +23,10 @@ RUN npm ci
 
 FROM deps AS build
 
+# Railway can inject this at build time so the browser bundle uses the real API URL.
+ARG PUBLIC_API_BASE_URL=http://localhost:3000/api
+ENV PUBLIC_API_BASE_URL=${PUBLIC_API_BASE_URL}
+
 # Build from the repo root so the shared workspace is available.
 COPY . .
 
