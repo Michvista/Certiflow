@@ -14,4 +14,4 @@ jobs:
         run: curl -fsS https://api-gateway-production-c30b.up.railway.app/health
 
       - name: Ping frontend
-        run: curl -fsS https://frontend-production-da3b.up.railway.app
+        run: curl -fsS https://certiflow-da3b.up.railway.app/
